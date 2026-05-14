@@ -165,7 +165,6 @@ router.post(
         university,
         major,
         keywords,
-        resumeSnippet: resumeText.slice(0, 2000),
       });
 
       const leads: Lead[] = rawLeads
@@ -364,28 +363,41 @@ async function extractKeywords(
   resumeText: string,
   major: string,
 ): Promise<Keywords> {
-  const prompt = `You are an expert resume parser. Extract structured keywords from this college student's resume.
+  // Trim aggressively — keyword extraction reads only the first few sections
+  // anyway (Skills / Experience / Activities). Smaller input = faster + cheaper.
+  const trimmed = resumeText.slice(0, 4500);
+  const prompt = `Extract structured keywords from this college student's resume.
 
 MAJOR: ${major}
 
 RESUME TEXT:
 """
-${resumeText.slice(0, 8000)}
+${trimmed}
 """
 
 Return a JSON object with exactly these three arrays:
-- "skills": technical skills, tools, languages, frameworks, methodologies (5-15 items, short phrases like "Python", "SQL", "Adobe Illustrator")
-- "internships": internship titles or research positions (e.g. "Software Engineering Intern at Google", "Research Assistant - Smith Lab"). Each entry should be the title and organization combined.
-- "clubs": names of clubs, student organizations, fraternities/sororities, sports teams, volunteer groups (e.g. "Hackathon Club", "Society of Women Engineers", "Model UN")
+- "skills": 5-12 short phrases (tools, languages, frameworks, methodologies)
+- "internships": internship/research titles combined with the organization
+- "clubs": clubs, orgs, teams, volunteer groups
 
-Be precise — only include items actually present in the resume. Do not invent. Return ONLY a JSON object, no commentary.`;
+Only include items actually present in the resume. Return ONLY a JSON object.`;
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-5.4",
-    max_completion_tokens: 2000,
-    response_format: { type: "json_object" },
-    messages: [{ role: "user", content: prompt }],
-  });
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), 25_000);
+  let response;
+  try {
+    response = await openai.chat.completions.create(
+      {
+        model: "gpt-5.4",
+        max_completion_tokens: 800,
+        response_format: { type: "json_object" },
+        messages: [{ role: "user", content: prompt }],
+      },
+      { signal: abort.signal },
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 
   const raw = response.choices[0]?.message?.content ?? "{}";
   const parsed = safeJson(raw);
@@ -434,21 +446,21 @@ async function generateAlumniLeads(input: {
   university: string;
   major: string;
   keywords: Keywords;
-  resumeSnippet: string;
 }): Promise<RawLead[]> {
   const { university, major, keywords } = input;
   const currentYear = new Date().getFullYear();
+  const LEAD_TARGET = 6;
 
   const searchInstructions = `You are Applai, a research assistant that finds REAL publicly verifiable alumni for college students.
 
 The student studies ${major} at ${university}.
 
 They are looking for alumni from ${university} (specifically — not from any other school) whose backgrounds overlap with theirs:
-- Skills: ${keywords.skills.slice(0, 12).join(", ") || "(none listed)"}
-- Internships / early roles: ${keywords.internships.slice(0, 8).join(", ") || "(none listed)"}
-- Clubs / activities: ${keywords.clubs.slice(0, 8).join(", ") || "(none listed)"}
+- Skills: ${keywords.skills.slice(0, 10).join(", ") || "(none listed)"}
+- Internships / early roles: ${keywords.internships.slice(0, 6).join(", ") || "(none listed)"}
+- Clubs / activities: ${keywords.clubs.slice(0, 6).join(", ") || "(none listed)"}
 
-Use the web_search tool to actually find 8 real alumni who match these constraints. Run several searches if needed (e.g. "${university} ${major} alumni LinkedIn", "${university} alumni ${keywords.skills[0] ?? major}", "${university} ${keywords.clubs[0] ?? major} alumni"). Prefer profiles where you can verify the person attended ${university} from at least two independent sources (LinkedIn snippet, personal site, news article, faculty page, startup team page, etc.).
+Use the web_search tool to find ${LEAD_TARGET} real alumni who match these constraints. Run 2-3 targeted searches (e.g. "${university} ${major} alumni LinkedIn", "${university} alumni ${keywords.skills[0] ?? major}", "${university} ${keywords.clubs[0] ?? major} alumni"). Be efficient — don't run more searches than necessary. Prefer profiles where you can verify the person attended ${university} from at least one strong source (LinkedIn snippet, personal site, news article, faculty page, startup team page).
 
 STRICT RULES — violating these makes the result useless:
 1. Only include people whose ${university} attendance is explicitly visible in a search result you actually ran. If you cannot confirm it, skip the person.
@@ -458,7 +470,7 @@ STRICT RULES — violating these makes the result useless:
 5. Every lead must include \`sourceUrls\` — 1 to 3 real URLs that you found this person from.
 6. Graduation year must fall between ${currentYear - 30} and ${currentYear - 1} (and must be the year you actually saw, not a guess).
 7. \`matchedSkills\`, \`matchedClubs\`, \`matchedInternships\` must be a subset of the student's lists above AND something the alumni profile actually mentions.
-8. If after thorough searching you can only verify N < 8 people, return only N leads. Quality over quantity.
+8. If after thorough searching you can only verify N < ${LEAD_TARGET} people, return only N leads. Quality over quantity.
 
 Return your final answer as a single JSON object exactly matching this schema (no commentary, no markdown fences):
 {
@@ -508,7 +520,7 @@ Return your final answer as a single JSON object exactly matching this schema (n
       model: "gpt-5.4",
       tools: [{ type: "web_search_preview" }],
       input: searchInstructions,
-      max_output_tokens: 12000,
+      max_output_tokens: 6000,
     });
 
     raw =
@@ -526,7 +538,7 @@ Return your final answer as a single JSON object exactly matching this schema (n
     );
     const fallback = await openai.chat.completions.create({
       model: "gpt-5.4",
-      max_completion_tokens: 8192,
+      max_completion_tokens: 4500,
       response_format: { type: "json_object" },
       messages: [
         {
