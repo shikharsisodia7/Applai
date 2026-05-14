@@ -3,13 +3,15 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Applai API — alumni leads from resume
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: analysis
+    description: Resume analysis & alumni leads
 paths:
   /healthz:
     get:
@@ -24,6 +26,84 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /analyses:
+    post:
+      operationId: createAnalysis
+      tags: [analysis]
+      summary: Upload resume PDF + major + university; returns extracted keywords and ranked alumni leads
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/AnalysisInput"
+      responses:
+        "201":
+          description: Analysis created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Analysis"
+
+  /analyses/{id}:
+    get:
+      operationId: getAnalysis
+      tags: [analysis]
+      summary: Get a previously created analysis
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Analysis"
+
+  /analyses/{id}/leads/{leadId}:
+    get:
+      operationId: getLead
+      tags: [analysis]
+      summary: Get a single alumni lead with full detail
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: leadId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Lead"
+
+  /majors:
+    get:
+      operationId: listMajors
+      tags: [analysis]
+      summary: List of suggested majors
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +114,160 @@ components:
       required:
         - status
 
+    AnalysisInput:
+      type: object
+      required: [resume, major, university]
+      properties:
+        resume:
+          type: string
+          format: binary
+          description: Resume PDF file
+        major:
+          type: string
+          description: Student's selected major
+        university:
+          type: string
+          description: Student's university (used to find same-school alumni)
+
+    ExtractedKeywords:
+      type: object
+      required: [skills, internships, clubs]
+      properties:
+        skills:
+          type: array
+          items:
+            type: string
+        internships:
+          type: array
+          items:
+            type: string
+        clubs:
+          type: array
+          items:
+            type: string
+
+    CareerEntry:
+      type: object
+      required: [role, organization]
+      properties:
+        role:
+          type: string
+        organization:
+          type: string
+        startYear:
+          type: ["integer", "null"]
+        endYear:
+          type: ["integer", "null"]
+        description:
+          type: ["string", "null"]
+
+    EducationEntry:
+      type: object
+      required: [institution]
+      properties:
+        institution:
+          type: string
+        degree:
+          type: ["string", "null"]
+        field:
+          type: ["string", "null"]
+        startYear:
+          type: ["integer", "null"]
+        endYear:
+          type: ["integer", "null"]
+
+    Lead:
+      type: object
+      required:
+        - id
+        - name
+        - graduationYear
+        - currentRole
+        - currentOrganization
+        - similarityScore
+        - matchedSkills
+        - matchedClubs
+        - matchedInternships
+        - careerHistory
+        - educationHistory
+        - hasPublicEmail
+        - hasPublicPhone
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        photoUrl:
+          type: ["string", "null"]
+        initials:
+          type: string
+        graduationYear:
+          type: integer
+        currentRole:
+          type: string
+        currentOrganization:
+          type: string
+        location:
+          type: ["string", "null"]
+        major:
+          type: ["string", "null"]
+        similarityScore:
+          type: number
+          description: 0-100 overlap between student's extracurriculars and lead's early-career roles
+        growthSummary:
+          type: ["string", "null"]
+          description: One-line description of how impressively this person has grown
+        matchedSkills:
+          type: array
+          items:
+            type: string
+        matchedClubs:
+          type: array
+          items:
+            type: string
+        matchedInternships:
+          type: array
+          items:
+            type: string
+        careerHistory:
+          type: array
+          items:
+            $ref: "#/components/schemas/CareerEntry"
+        educationHistory:
+          type: array
+          items:
+            $ref: "#/components/schemas/EducationEntry"
+        email:
+          type: ["string", "null"]
+        phone:
+          type: ["string", "null"]
+        linkedinUrl:
+          type: ["string", "null"]
+        hasPublicEmail:
+          type: boolean
+        hasPublicPhone:
+          type: boolean
+        sourceUrls:
+          type: array
+          items:
+            type: string
+
+    Analysis:
+      type: object
+      required: [id, major, university, keywords, leads, createdAt]
+      properties:
+        id:
+          type: string
+        major:
+          type: string
+        university:
+          type: string
+        keywords:
+          $ref: "#/components/schemas/ExtractedKeywords"
+        leads:
+          type: array
+          items:
+            $ref: "#/components/schemas/Lead"
+        createdAt:
+          type: string
+          format: date-time
