@@ -128,6 +128,12 @@ export default function Results() {
 
       {/* Leads Grid */}
       <div className="container max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 mt-4">
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-200/70 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
+          <Sparkles className="w-4 h-4 mt-0.5 shrink-0 text-amber-600" />
+          <p>
+            These leads are AI-researched from public web results. Always click the source links and verify the person on LinkedIn before reaching out — details may be incomplete or outdated.
+          </p>
+        </div>
         {sortedLeads.length === 0 ? (
           <div className="text-center py-24 bg-background rounded-2xl border border-dashed border-border">
             <Sparkles className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-20" />

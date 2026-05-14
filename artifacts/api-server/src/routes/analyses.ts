@@ -277,69 +277,110 @@ async function generateAlumniLeads(input: {
   keywords: Keywords;
   resumeSnippet: string;
 }): Promise<RawLead[]> {
-  const { university, major, keywords, resumeSnippet } = input;
+  const { university, major, keywords } = input;
   const currentYear = new Date().getFullYear();
 
-  const prompt = `You are Applai, an agentic research assistant that finds publicly indexed alumni profiles for college students.
+  const searchInstructions = `You are Applai, a research assistant that finds REAL publicly verifiable alumni for college students.
 
 The student studies ${major} at ${university}.
 
-Their extracurriculars and experience:
-- Skills: ${keywords.skills.join(", ") || "(none listed)"}
-- Internships: ${keywords.internships.join(", ") || "(none listed)"}
-- Clubs: ${keywords.clubs.join(", ") || "(none listed)"}
+They are looking for alumni from ${university} (specifically — not from any other school) whose backgrounds overlap with theirs:
+- Skills: ${keywords.skills.slice(0, 12).join(", ") || "(none listed)"}
+- Internships / early roles: ${keywords.internships.slice(0, 8).join(", ") || "(none listed)"}
+- Clubs / activities: ${keywords.clubs.slice(0, 8).join(", ") || "(none listed)"}
 
-Resume snippet for additional context:
-"""
-${resumeSnippet}
-"""
+Use the web_search tool to actually find 8 real alumni who match these constraints. Run several searches if needed (e.g. "${university} ${major} alumni LinkedIn", "${university} alumni ${keywords.skills[0] ?? major}", "${university} ${keywords.clubs[0] ?? major} alumni"). Prefer profiles where you can verify the person attended ${university} from at least two independent sources (LinkedIn snippet, personal site, news article, faculty page, startup team page, etc.).
 
-TASK: Simulate the result of searching public-facing Google results, LinkedIn public profiles, and ${university}'s public alumni directory. Return 8 plausible alumni leads who:
-1) Graduated from ${university} (graduationYear between ${currentYear - 25} and ${currentYear - 4}).
-2) Studied a major similar to ${major}.
-3) Were involved in clubs and/or internships that overlap with the student's list.
-4) Have shown impressive career growth since graduation (early role at a known org, now at a senior or notable position).
-5) Prefer leads whose email or phone number would plausibly be publicly accessible (personal sites, faculty pages, startup founder pages). About 4 of the 8 should have a public email; 2 should have a public phone. The rest should only have a LinkedIn URL.
+STRICT RULES — violating these makes the result useless:
+1. Only include people whose ${university} attendance is explicitly visible in a search result you actually ran. If you cannot confirm it, skip the person.
+2. Every \`linkedinUrl\` MUST be a URL that appeared in your actual search results — never invent or guess a slug. If you do not have a real LinkedIn URL from search, set the field to null.
+3. Every \`email\` and \`phone\` MUST come from a real public source you found (personal site, university directory, conference page, etc.). Do NOT fabricate. If unverified, set to null and \`hasPublicEmail\`/\`hasPublicPhone\` to false.
+4. Career history, education history, current role/organization, location, and graduation year MUST come from search results (LinkedIn snippets, bios, etc.). Do NOT invent dates or roles. If you cannot find a fact, omit that field rather than make one up.
+5. Every lead must include \`sourceUrls\` — 1 to 3 real URLs that you found this person from.
+6. Graduation year must fall between ${currentYear - 30} and ${currentYear - 1} (and must be the year you actually saw, not a guess).
+7. \`matchedSkills\`, \`matchedClubs\`, \`matchedInternships\` must be a subset of the student's lists above AND something the alumni profile actually mentions.
+8. If after thorough searching you can only verify N < 8 people, return only N leads. Quality over quantity.
 
-For each lead provide ALL of the following JSON fields:
+Return your final answer as a single JSON object exactly matching this schema (no commentary, no markdown fences):
 {
-  "name": "First Last",
-  "graduationYear": <integer>,
-  "currentRole": "Senior Title",
-  "currentOrganization": "Company / Org",
-  "location": "City, State/Country",
-  "major": "Their college major",
-  "growthSummary": "One short sentence on impressive growth (e.g. 'Went from CS undergrad to founding a YC-backed AI startup in 6 years')",
-  "matchedSkills": ["overlap with student's skills - subset"],
-  "matchedClubs":  ["overlap with student's clubs - subset"],
-  "matchedInternships": ["roughly aligned early-career roles or internships"],
-  "careerHistory": [
-    { "role": "Title", "organization": "Org", "startYear": <int>, "endYear": <int|null>, "description": "1 short sentence" }
-    // 3-5 entries from earliest to most recent (latest may have endYear null = present)
-  ],
-  "educationHistory": [
-    { "institution": "${university}", "degree": "B.S.", "field": "Major", "startYear": <int>, "endYear": <int> }
-    // include grad school if applicable
-  ],
-  "email":     "<plausible public email or null>",
-  "phone":     "<plausible public phone with country code or null>",
-  "linkedinUrl": "https://www.linkedin.com/in/<slug>",
-  "hasPublicEmail": <true|false>,
-  "hasPublicPhone": <true|false>,
-  "sourceUrls": ["https://...", "https://..."]   // 1-3 plausible public URLs
-}
+  "leads": [
+    {
+      "name": "First Last",
+      "graduationYear": <integer>,
+      "currentRole": "Title",
+      "currentOrganization": "Org",
+      "location": "City, Region" | null,
+      "major": "Their college major" | null,
+      "growthSummary": "One short verifiable sentence on their trajectory" | null,
+      "matchedSkills": ["..."],
+      "matchedClubs": ["..."],
+      "matchedInternships": ["..."],
+      "careerHistory": [
+        { "role": "Title", "organization": "Org", "startYear": <int|null>, "endYear": <int|null>, "description": "1 short sentence from a source" | null }
+      ],
+      "educationHistory": [
+        { "institution": "${university}", "degree": "B.S." | null, "field": "Major" | null, "startYear": <int|null>, "endYear": <int|null> }
+      ],
+      "email": "<verified public email>" | null,
+      "phone": "<verified public phone>" | null,
+      "linkedinUrl": "<URL from search results>" | null,
+      "hasPublicEmail": <true|false>,
+      "hasPublicPhone": <true|false>,
+      "sourceUrls": ["<real url 1>", "<real url 2>"]
+    }
+  ]
+}`;
 
-Return ONLY a JSON object of the shape: { "leads": [ ... 8 lead objects ... ] }
-No commentary. Be realistic — names should be diverse, organizations should be real well-known companies/institutions, and the matched fields MUST genuinely reflect overlap with the student's list above.`;
+  let raw = "";
+  try {
+    const response = await (
+      openai as unknown as {
+        responses: {
+          create: (args: Record<string, unknown>) => Promise<{
+            output_text?: string;
+            output?: Array<{
+              type?: string;
+              content?: Array<{ type?: string; text?: string }>;
+            }>;
+          }>;
+        };
+      }
+    ).responses.create({
+      model: "gpt-5.4",
+      tools: [{ type: "web_search_preview" }],
+      input: searchInstructions,
+      max_output_tokens: 12000,
+    });
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-5.4",
-    max_completion_tokens: 8192,
-    response_format: { type: "json_object" },
-    messages: [{ role: "user", content: prompt }],
-  });
+    raw =
+      response.output_text ??
+      response.output
+        ?.flatMap((item) => item.content ?? [])
+        .filter((c) => c.type === "output_text" && typeof c.text === "string")
+        .map((c) => c.text!)
+        .join("\n") ??
+      "";
+  } catch (err) {
+    logger.warn(
+      { err },
+      "Web-search Responses call failed; falling back to ungrounded generation",
+    );
+    const fallback = await openai.chat.completions.create({
+      model: "gpt-5.4",
+      max_completion_tokens: 8192,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "user",
+          content:
+            searchInstructions +
+            "\n\n(NOTE: web_search is unavailable; do your best from training knowledge. Mark linkedinUrl/email/phone null when not verifiable.)",
+        },
+      ],
+    });
+    raw = fallback.choices[0]?.message?.content ?? "{}";
+  }
 
-  const raw = response.choices[0]?.message?.content ?? "{}";
   const parsed = safeJson(raw);
   const leads = Array.isArray(parsed.leads) ? parsed.leads : [];
   return leads as RawLead[];
