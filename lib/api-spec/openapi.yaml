@@ -89,6 +89,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/Lead"
 
+  /analyses/{id}/leads/{leadId}/outreach:
+    post:
+      operationId: draftOutreach
+      tags: [analysis]
+      summary: Generate personalized email and LinkedIn message templates for reaching out to a lead
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: leadId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutreachDraft"
+
   /majors:
     get:
       operationId: listMajors
@@ -251,6 +275,17 @@ components:
           type: array
           items:
             type: string
+
+    OutreachDraft:
+      type: object
+      required: [emailSubject, emailBody, linkedinMessage]
+      properties:
+        emailSubject:
+          type: string
+        emailBody:
+          type: string
+        linkedinMessage:
+          type: string
 
     Analysis:
       type: object

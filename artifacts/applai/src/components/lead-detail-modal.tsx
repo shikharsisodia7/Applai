@@ -16,6 +16,7 @@ import {
   Sparkles
 } from "lucide-react";
 import { useGetLead, getGetLeadQueryKey } from "@workspace/api-client-react";
+import { OutreachDrafts } from "./outreach-drafts";
 
 interface LeadDetailModalProps {
   analysisId: string;
@@ -187,6 +188,13 @@ export function LeadDetailModal({ analysisId, leadId, open, onOpenChange }: Lead
                   )}
                 </div>
               </div>
+
+              <OutreachDrafts
+                analysisId={analysisId}
+                leadId={lead.id}
+                leadName={lead.name}
+                leadEmail={lead.email}
+              />
 
               <Separator className="bg-border/50" />
 

@@ -117,11 +117,24 @@ export default function Home() {
   const isPending = createAnalysis.isPending;
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-6 bg-gradient-to-b from-white to-gray-50/50">
-      <div className="w-full max-w-xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="relative flex-1 flex flex-col items-center justify-center p-6 bg-gradient-to-b from-white to-gray-50/50 overflow-hidden">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute top-1/4 -left-24 h-72 w-72 rounded-full bg-primary/20 blur-3xl animate-float"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute bottom-1/4 -right-24 h-72 w-72 rounded-full bg-secondary/20 blur-3xl animate-float"
+        style={{ animationDelay: "1.5s" }}
+      />
+      <div className="relative w-full max-w-xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
         <div className="text-center space-y-4">
           <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-foreground">
-            Find your <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">future self</span>.
+            Find your{" "}
+            <span className="text-transparent bg-clip-text bg-[linear-gradient(110deg,hsl(var(--primary)),hsl(var(--secondary)),hsl(var(--primary)))] bg-[length:200%_auto] animate-gradient-x">
+              future self
+            </span>
+            .
           </h1>
           <p className="text-lg text-muted-foreground max-w-md mx-auto">
             Upload your resume. We'll find alumni from your university who walked a similar path and are doing impressive things today.

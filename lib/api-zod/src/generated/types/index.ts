@@ -13,3 +13,4 @@ export * from "./educationEntry";
 export * from "./extractedKeywords";
 export * from "./healthStatus";
 export * from "./lead";
+export * from "./outreachDraft";

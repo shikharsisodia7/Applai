@@ -153,6 +153,20 @@ export const GetLeadResponse = zod.object({
 });
 
 /**
+ * @summary Generate personalized email and LinkedIn message templates for reaching out to a lead
+ */
+export const DraftOutreachParams = zod.object({
+  id: zod.coerce.string(),
+  leadId: zod.coerce.string(),
+});
+
+export const DraftOutreachResponse = zod.object({
+  emailSubject: zod.string(),
+  emailBody: zod.string(),
+  linkedinMessage: zod.string(),
+});
+
+/**
  * @summary List of suggested majors
  */
 export const ListMajorsResponseItem = zod.string();

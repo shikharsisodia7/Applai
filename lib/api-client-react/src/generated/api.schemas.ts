@@ -83,6 +83,12 @@ export interface Lead {
   sourceUrls?: string[];
 }
 
+export interface OutreachDraft {
+  emailSubject: string;
+  emailBody: string;
+  linkedinMessage: string;
+}
+
 export interface Analysis {
   id: string;
   major: string;

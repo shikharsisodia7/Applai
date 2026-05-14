@@ -21,6 +21,7 @@ import type {
   AnalysisInput,
   HealthStatus,
   Lead,
+  OutreachDraft,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -364,6 +365,91 @@ export function useGetLead<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Generate personalized email and LinkedIn message templates for reaching out to a lead
+ */
+export const getDraftOutreachUrl = (id: string, leadId: string) => {
+  return `/api/analyses/${id}/leads/${leadId}/outreach`;
+};
+
+export const draftOutreach = async (
+  id: string,
+  leadId: string,
+  options?: RequestInit,
+): Promise<OutreachDraft> => {
+  return customFetch<OutreachDraft>(getDraftOutreachUrl(id, leadId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getDraftOutreachMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof draftOutreach>>,
+    TError,
+    { id: string; leadId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof draftOutreach>>,
+  TError,
+  { id: string; leadId: string },
+  TContext
+> => {
+  const mutationKey = ["draftOutreach"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof draftOutreach>>,
+    { id: string; leadId: string }
+  > = (props) => {
+    const { id, leadId } = props ?? {};
+
+    return draftOutreach(id, leadId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DraftOutreachMutationResult = NonNullable<
+  Awaited<ReturnType<typeof draftOutreach>>
+>;
+
+export type DraftOutreachMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Generate personalized email and LinkedIn message templates for reaching out to a lead
+ */
+export const useDraftOutreach = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof draftOutreach>>,
+    TError,
+    { id: string; leadId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof draftOutreach>>,
+  TError,
+  { id: string; leadId: string },
+  TContext
+> => {
+  return useMutation(getDraftOutreachMutationOptions(options));
+};
 
 /**
  * @summary List of suggested majors

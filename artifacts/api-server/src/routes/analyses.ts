@@ -170,6 +170,38 @@ router.get("/analyses/:id", (req: Request, res: Response) => {
   res.json(analysis);
 });
 
+router.post(
+  "/analyses/:id/leads/:leadId/outreach",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id, leadId } = GetLeadParams.parse(req.params);
+      const analysis = analyses.get(id);
+      if (!analysis) {
+        res.status(404).json({ error: "Analysis not found" });
+        return;
+      }
+      const lead = analysis.leads.find((l) => l.id === leadId);
+      if (!lead) {
+        res.status(404).json({ error: "Lead not found" });
+        return;
+      }
+
+      const draft = await draftOutreachMessages({
+        student: {
+          major: analysis.major,
+          university: analysis.university,
+          keywords: analysis.keywords,
+        },
+        lead,
+      });
+      res.json(draft);
+    } catch (err) {
+      logger.error({ err }, "Failed to draft outreach");
+      next(err);
+    }
+  },
+);
+
 router.get("/analyses/:id/leads/:leadId", (req: Request, res: Response) => {
   const { id, leadId } = GetLeadParams.parse(req.params);
   const analysis = analyses.get(id);
@@ -467,6 +499,91 @@ function scoreAndNormalizeLead(raw: RawLead, keywords: Keywords): Lead {
       ? raw.sourceUrls.filter((u): u is string => typeof u === "string")
       : [],
   });
+}
+
+async function draftOutreachMessages(input: {
+  student: {
+    major: string;
+    university: string;
+    keywords: Keywords;
+  };
+  lead: Lead;
+}): Promise<{ emailSubject: string; emailBody: string; linkedinMessage: string }> {
+  const { student, lead } = input;
+
+  const sharedSkills = lead.matchedSkills.slice(0, 5);
+  const sharedClubs = lead.matchedClubs.slice(0, 3);
+  const sharedInternships = lead.matchedInternships.slice(0, 3);
+
+  const prompt = `You are writing two outreach messages a real college student will send to a ${student.university} alum.
+
+STUDENT
+- University: ${student.university}
+- Major: ${student.major}
+- Skills they listed: ${student.keywords.skills.slice(0, 10).join(", ") || "(n/a)"}
+- Clubs / activities: ${student.keywords.clubs.slice(0, 5).join(", ") || "(n/a)"}
+- Past internships / roles: ${student.keywords.internships.slice(0, 5).join(", ") || "(n/a)"}
+
+ALUM
+- Name: ${lead.name}
+- Current role: ${lead.currentRole} at ${lead.currentOrganization}
+- Graduated: ${student.university}, Class of ${lead.graduationYear}${lead.major ? `, studied ${lead.major}` : ""}
+- Shared skills: ${sharedSkills.join(", ") || "(none)"}
+- Shared clubs / orgs: ${sharedClubs.join(", ") || "(none)"}
+- Shared early-career experience: ${sharedInternships.join(", ") || "(none)"}
+${lead.growthSummary ? `- Notable: ${lead.growthSummary}` : ""}
+
+Write:
+1. A warm, specific COLD EMAIL (the kind a thoughtful undergrad sends, not a marketing pitch).
+   - Subject: short, personal, no clickbait, no emoji.
+   - Body: ~120-160 words. Open by naming the genuine connection (same school + a SPECIFIC overlap from above). One short paragraph about what the student admires about the alum's path (reference an actual fact). One ask: 15-20 minutes on a call to hear advice on breaking into their field. Close politely. Sign off as "[Your Name]" so the student can fill it in.
+   - Plain text, no markdown, no headers, no bullet points.
+
+2. A LINKEDIN CONNECTION-REQUEST MESSAGE.
+   - HARD LIMIT: under 290 characters (LinkedIn caps at 300). Be ruthless.
+   - Mention the shared school plus ONE genuine overlap from above. Make a short, specific ask (advice / 15-min call). End with "— [Your Name]".
+
+Tone: humble, warm, curious, never sycophantic, never generic. Reference real facts from above only. Do NOT invent details about the alum. Do NOT use the words "synergy", "leverage", "rockstar", "hustle", or "circle back". Do NOT use emojis.
+
+Return ONLY a JSON object exactly like:
+{ "emailSubject": "...", "emailBody": "...", "linkedinMessage": "..." }`;
+
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), 45_000);
+  let response;
+  try {
+    response = await openai.chat.completions.create(
+      {
+        model: "gpt-5.4",
+        max_completion_tokens: 2000,
+        response_format: { type: "json_object" },
+        messages: [{ role: "user", content: prompt }],
+      },
+      { signal: abort.signal },
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const raw = response.choices[0]?.message?.content ?? "{}";
+  const parsed = safeJson(raw);
+  const emailSubject =
+    typeof parsed.emailSubject === "string"
+      ? parsed.emailSubject
+      : `${student.university} alum — quick question`;
+  const emailBody =
+    typeof parsed.emailBody === "string"
+      ? parsed.emailBody
+      : `Hi ${lead.name.split(" ")[0]},\n\nI'm a ${student.major} student at ${student.university} and came across your work at ${lead.currentOrganization}. Would you be open to a 15-minute call so I can hear how you navigated the early years of your career? Any guidance would mean a lot.\n\nThanks so much,\n[Your Name]`;
+  let linkedinMessage =
+    typeof parsed.linkedinMessage === "string"
+      ? parsed.linkedinMessage
+      : `Hi ${lead.name.split(" ")[0]} — I'm a ${student.major} student at ${student.university}. Loved seeing your path to ${lead.currentOrganization}. Would you be open to a quick 15-min call for advice on breaking in? — [Your Name]`;
+  if (linkedinMessage.length > 295) {
+    linkedinMessage = linkedinMessage.slice(0, 292).trimEnd() + "...";
+  }
+
+  return { emailSubject, emailBody, linkedinMessage };
 }
 
 function ratio(matched: number, total: number, weight: number): number {
