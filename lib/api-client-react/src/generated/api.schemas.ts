@@ -83,6 +83,45 @@ export interface Lead {
   sourceUrls?: string[];
 }
 
+export interface InterviewQuestion {
+  id: string;
+  question: string;
+  /** e.g. "behavioral", "technical", "role-specific", "culture-fit" */
+  category: string;
+  /** One-sentence note on why this question matters for this role */
+  rationale: string;
+}
+
+export interface InterviewSession {
+  role: string;
+  organization: string;
+  questions: InterviewQuestion[];
+}
+
+export interface InterviewGradeInput {
+  /** Recorded answer (webm / mp4 / wav / mp3) */
+  audio: Blob;
+  /** The interview question the user is answering */
+  question: string;
+  questionId?: string;
+}
+
+export interface InterviewGrade {
+  transcript: string;
+  /** Harsh 0-10 score */
+  score: number;
+  /** Detected vocal tone (e.g. "confident", "hesitant", "monotone") */
+  tone: string;
+  /**
+   * Optional fuller note on delivery / pacing / filler words
+   * @nullable
+   */
+  toneNotes?: string | null;
+  strengths: string[];
+  improvements: string[];
+  summary: string;
+}
+
 export interface OutreachDraft {
   emailSubject: string;
   emailBody: string;

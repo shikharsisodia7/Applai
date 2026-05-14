@@ -20,6 +20,9 @@ import type {
   Analysis,
   AnalysisInput,
   HealthStatus,
+  InterviewGrade,
+  InterviewGradeInput,
+  InterviewSession,
   Lead,
   OutreachDraft,
 } from "./api.schemas";
@@ -449,6 +452,185 @@ export const useDraftOutreach = <
   TContext
 > => {
   return useMutation(getDraftOutreachMutationOptions(options));
+};
+
+/**
+ * @summary Generate a mock interview (3-5 tailored questions) for the role this lead holds
+ */
+export const getCreateInterviewUrl = (id: string, leadId: string) => {
+  return `/api/analyses/${id}/leads/${leadId}/interview`;
+};
+
+export const createInterview = async (
+  id: string,
+  leadId: string,
+  options?: RequestInit,
+): Promise<InterviewSession> => {
+  return customFetch<InterviewSession>(getCreateInterviewUrl(id, leadId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getCreateInterviewMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createInterview>>,
+    TError,
+    { id: string; leadId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createInterview>>,
+  TError,
+  { id: string; leadId: string },
+  TContext
+> => {
+  const mutationKey = ["createInterview"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createInterview>>,
+    { id: string; leadId: string }
+  > = (props) => {
+    const { id, leadId } = props ?? {};
+
+    return createInterview(id, leadId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateInterviewMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createInterview>>
+>;
+
+export type CreateInterviewMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Generate a mock interview (3-5 tailored questions) for the role this lead holds
+ */
+export const useCreateInterview = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createInterview>>,
+    TError,
+    { id: string; leadId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createInterview>>,
+  TError,
+  { id: string; leadId: string },
+  TContext
+> => {
+  return useMutation(getCreateInterviewMutationOptions(options));
+};
+
+/**
+ * @summary Transcribe a recorded answer, grade it harshly (0-10), detect vocal tone, return improvements
+ */
+export const getGradeInterviewAnswerUrl = (id: string, leadId: string) => {
+  return `/api/analyses/${id}/leads/${leadId}/interview/grade`;
+};
+
+export const gradeInterviewAnswer = async (
+  id: string,
+  leadId: string,
+  interviewGradeInput: InterviewGradeInput,
+  options?: RequestInit,
+): Promise<InterviewGrade> => {
+  const formData = new FormData();
+  formData.append(`audio`, interviewGradeInput.audio);
+  formData.append(`question`, interviewGradeInput.question);
+  if (interviewGradeInput.questionId !== undefined) {
+    formData.append(`questionId`, interviewGradeInput.questionId);
+  }
+
+  return customFetch<InterviewGrade>(getGradeInterviewAnswerUrl(id, leadId), {
+    ...options,
+    method: "POST",
+    body: formData,
+  });
+};
+
+export const getGradeInterviewAnswerMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof gradeInterviewAnswer>>,
+    TError,
+    { id: string; leadId: string; data: BodyType<InterviewGradeInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof gradeInterviewAnswer>>,
+  TError,
+  { id: string; leadId: string; data: BodyType<InterviewGradeInput> },
+  TContext
+> => {
+  const mutationKey = ["gradeInterviewAnswer"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof gradeInterviewAnswer>>,
+    { id: string; leadId: string; data: BodyType<InterviewGradeInput> }
+  > = (props) => {
+    const { id, leadId, data } = props ?? {};
+
+    return gradeInterviewAnswer(id, leadId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type GradeInterviewAnswerMutationResult = NonNullable<
+  Awaited<ReturnType<typeof gradeInterviewAnswer>>
+>;
+export type GradeInterviewAnswerMutationBody = BodyType<InterviewGradeInput>;
+export type GradeInterviewAnswerMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Transcribe a recorded answer, grade it harshly (0-10), detect vocal tone, return improvements
+ */
+export const useGradeInterviewAnswer = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof gradeInterviewAnswer>>,
+    TError,
+    { id: string; leadId: string; data: BodyType<InterviewGradeInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof gradeInterviewAnswer>>,
+  TError,
+  { id: string; leadId: string; data: BodyType<InterviewGradeInput> },
+  TContext
+> => {
+  return useMutation(getGradeInterviewAnswerMutationOptions(options));
 };
 
 /**

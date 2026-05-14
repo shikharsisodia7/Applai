@@ -167,6 +167,70 @@ export const DraftOutreachResponse = zod.object({
 });
 
 /**
+ * @summary Generate a mock interview (3-5 tailored questions) for the role this lead holds
+ */
+export const CreateInterviewParams = zod.object({
+  id: zod.coerce.string(),
+  leadId: zod.coerce.string(),
+});
+
+export const CreateInterviewResponse = zod.object({
+  role: zod.string(),
+  organization: zod.string(),
+  questions: zod.array(
+    zod.object({
+      id: zod.string(),
+      question: zod.string(),
+      category: zod
+        .string()
+        .describe(
+          'e.g. \"behavioral\", \"technical\", \"role-specific\", \"culture-fit\"',
+        ),
+      rationale: zod
+        .string()
+        .describe(
+          "One-sentence note on why this question matters for this role",
+        ),
+    }),
+  ),
+});
+
+/**
+ * @summary Transcribe a recorded answer, grade it harshly (0-10), detect vocal tone, return improvements
+ */
+export const GradeInterviewAnswerParams = zod.object({
+  id: zod.coerce.string(),
+  leadId: zod.coerce.string(),
+});
+
+export const GradeInterviewAnswerBody = zod.object({
+  audio: zod
+    .instanceof(File)
+    .describe("Recorded answer (webm \/ mp4 \/ wav \/ mp3)"),
+  question: zod
+    .string()
+    .describe("The interview question the user is answering"),
+  questionId: zod.string().optional(),
+});
+
+export const GradeInterviewAnswerResponse = zod.object({
+  transcript: zod.string(),
+  score: zod.number().describe("Harsh 0-10 score"),
+  tone: zod
+    .string()
+    .describe(
+      'Detected vocal tone (e.g. \"confident\", \"hesitant\", \"monotone\")',
+    ),
+  toneNotes: zod
+    .string()
+    .nullish()
+    .describe("Optional fuller note on delivery \/ pacing \/ filler words"),
+  strengths: zod.array(zod.string()),
+  improvements: zod.array(zod.string()),
+  summary: zod.string(),
+});
+
+/**
  * @summary List of suggested majors
  */
 export const ListMajorsResponseItem = zod.string();

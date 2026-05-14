@@ -17,6 +17,9 @@ import {
 } from "lucide-react";
 import { useGetLead, getGetLeadQueryKey } from "@workspace/api-client-react";
 import { OutreachDrafts } from "./outreach-drafts";
+import { InterviewModal } from "./interview-modal";
+import { useState } from "react";
+import { Mic } from "lucide-react";
 
 interface LeadDetailModalProps {
   analysisId: string;
@@ -26,6 +29,7 @@ interface LeadDetailModalProps {
 }
 
 export function LeadDetailModal({ analysisId, leadId, open, onOpenChange }: LeadDetailModalProps) {
+  const [interviewOpen, setInterviewOpen] = useState(false);
   const { data: lead, isLoading } = useGetLead(
     analysisId, 
     leadId as string, 
@@ -196,6 +200,30 @@ export function LeadDetailModal({ analysisId, leadId, open, onOpenChange }: Lead
                 leadEmail={lead.email}
               />
 
+              {/* Mock interview CTA */}
+              <div className="rounded-2xl border border-border/60 bg-gradient-to-br from-secondary/10 via-primary/5 to-transparent p-5 sm:p-6 space-y-3">
+                <div className="flex items-start gap-4 flex-wrap">
+                  <div className="p-2.5 rounded-xl bg-secondary/15 text-secondary">
+                    <Mic className="w-6 h-6" />
+                  </div>
+                  <div className="flex-1 min-w-[240px] space-y-1">
+                    <h3 className="text-lg font-semibold leading-tight">
+                      Prep for a {lead.currentRole} interview
+                    </h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      Get 4 tailored questions a hiring manager at {lead.currentOrganization} would ask. Record your answers — the AI grades them out of 10, harshly, and tells you what to fix.
+                    </p>
+                  </div>
+                  <Button
+                    onClick={() => setInterviewOpen(true)}
+                    className="bg-gradient-to-r from-primary to-secondary text-white hover:opacity-90 shadow-md"
+                  >
+                    <Mic className="w-4 h-4 mr-2" />
+                    Start mock interview
+                  </Button>
+                </div>
+              </div>
+
               <Separator className="bg-border/50" />
 
               {/* Career Timeline */}
@@ -271,6 +299,17 @@ export function LeadDetailModal({ analysisId, leadId, open, onOpenChange }: Lead
           </>
         )}
       </DialogContent>
+      {lead ? (
+        <InterviewModal
+          analysisId={analysisId}
+          leadId={lead.id}
+          leadName={lead.name}
+          role={lead.currentRole}
+          organization={lead.currentOrganization}
+          open={interviewOpen}
+          onOpenChange={setInterviewOpen}
+        />
+      ) : null}
     </Dialog>
   );
 }

@@ -3,6 +3,7 @@ import multer from "multer";
 import pdfParseImport from "pdf-parse";
 import crypto from "node:crypto";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { speechToText, ensureCompatibleFormat } from "@workspace/integrations-openai-ai-server/audio";
 import {
   GetAnalysisParams,
   GetAnalysisResponse,
@@ -34,7 +35,45 @@ const upload = multer({
   },
 });
 
+const ALLOWED_AUDIO_MIME = new Set([
+  "audio/webm",
+  "audio/ogg",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/wave",
+  "video/webm", // some browsers tag MediaRecorder output this way
+  "video/mp4",
+  "application/octet-stream",
+]);
+
+const audioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const mime = (file.mimetype || "").toLowerCase().split(";")[0]!.trim();
+    if (ALLOWED_AUDIO_MIME.has(mime) || mime.startsWith("audio/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Unsupported audio format"));
+    }
+  },
+});
+
 const analyses = new Map<string, Analysis>();
+const interviewSessions = new Map<
+  string,
+  { role: string; organization: string; questions: InterviewQuestion[] }
+>();
+
+type InterviewQuestion = {
+  id: string;
+  question: string;
+  category: string;
+  rationale: string;
+};
 
 const MAJORS: string[] = [
   "Computer Science",
@@ -169,6 +208,94 @@ router.get("/analyses/:id", (req: Request, res: Response) => {
   }
   res.json(analysis);
 });
+
+router.post(
+  "/analyses/:id/leads/:leadId/interview",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id, leadId } = GetLeadParams.parse(req.params);
+      const analysis = analyses.get(id);
+      if (!analysis) {
+        res.status(404).json({ error: "Analysis not found" });
+        return;
+      }
+      const lead = analysis.leads.find((l) => l.id === leadId);
+      if (!lead) {
+        res.status(404).json({ error: "Lead not found" });
+        return;
+      }
+      const session = await generateInterview({
+        student: { major: analysis.major, university: analysis.university },
+        lead,
+      });
+      interviewSessions.set(`${id}::${leadId}`, session);
+      res.json(session);
+    } catch (err) {
+      logger.error({ err }, "Failed to generate interview");
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/analyses/:id/leads/:leadId/interview/grade",
+  audioUpload.single("audio"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id, leadId } = GetLeadParams.parse(req.params);
+      const analysis = analyses.get(id);
+      if (!analysis) {
+        res.status(404).json({ error: "Analysis not found" });
+        return;
+      }
+      const lead = analysis.leads.find((l) => l.id === leadId);
+      if (!lead) {
+        res.status(404).json({ error: "Lead not found" });
+        return;
+      }
+      const file = req.file;
+      const bodyQuestion =
+        typeof req.body?.question === "string" ? req.body.question : "";
+      const questionId =
+        typeof req.body?.questionId === "string" ? req.body.questionId : "";
+      if (!file || !file.buffer || file.buffer.length === 0) {
+        res.status(400).json({ error: "Missing audio recording" });
+        return;
+      }
+
+      // If we have a generated session for this lead, only grade against
+      // a question that actually belongs to it.
+      const session = interviewSessions.get(`${id}::${leadId}`);
+      let question = bodyQuestion.trim();
+      if (session) {
+        const match =
+          (questionId && session.questions.find((q) => q.id === questionId)) ||
+          session.questions.find((q) => q.question === question);
+        if (!match) {
+          res
+            .status(400)
+            .json({ error: "Question does not belong to this interview session" });
+          return;
+        }
+        question = match.question;
+      }
+      if (!question) {
+        res.status(400).json({ error: "Missing question" });
+        return;
+      }
+      const grade = await gradeInterviewAnswer({
+        student: { major: analysis.major, university: analysis.university },
+        lead,
+        question,
+        audioBuffer: file.buffer,
+      });
+      res.json(grade);
+    } catch (err) {
+      logger.error({ err }, "Failed to grade interview answer");
+      next(err);
+    }
+  },
+);
 
 router.post(
   "/analyses/:id/leads/:leadId/outreach",
@@ -622,6 +749,216 @@ Return ONLY a JSON object exactly like:
   }
 
   return { emailSubject, emailBody, linkedinMessage };
+}
+
+async function generateInterview(input: {
+  student: { major: string; university: string };
+  lead: Lead;
+}): Promise<{ role: string; organization: string; questions: InterviewQuestion[] }> {
+  const { student, lead } = input;
+  const careerLines = (lead.careerHistory ?? [])
+    .slice(0, 6)
+    .map((c) => `  • ${c.role} at ${c.organization} (${c.startYear ?? "?"}-${c.endYear ?? "Present"})`)
+    .join("\n") || "  (none on file)";
+
+  const prompt = `Generate a mock-interview kit for a college student preparing to interview for the type of role this specific alum holds.
+
+STUDENT: ${student.major} student at ${student.university}
+TARGET ROLE: ${lead.currentRole}
+TARGET COMPANY: ${lead.currentOrganization}
+${lead.location ? `LOCATION: ${lead.location}` : ""}
+ALUM'S RECENT CAREER (use to infer what's expected of someone in this role):
+${careerLines}
+
+Produce exactly 4 interview questions a real hiring manager at ${lead.currentOrganization} (or a comparable employer) would ask for a ${lead.currentRole} role. Mix categories: at least one BEHAVIORAL, at least one ROLE-SPECIFIC / TECHNICAL, and at least one CULTURE-FIT or motivation question. Questions should be ANSWERABLE BY A COLLEGE STUDENT — no senior-level prerequisites assumed.
+
+Each question:
+- "question": the exact wording the interviewer would say (1-2 sentences).
+- "category": one of "behavioral", "technical", "role-specific", "culture-fit".
+- "rationale": ONE sentence on what a great answer demonstrates.
+
+Return ONLY a JSON object like:
+{ "questions": [ { "question": "...", "category": "...", "rationale": "..." }, ... ] }`;
+
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), 45_000);
+  let response;
+  try {
+    response = await openai.chat.completions.create(
+      {
+        model: "gpt-5.4",
+        max_completion_tokens: 2000,
+        response_format: { type: "json_object" },
+        messages: [{ role: "user", content: prompt }],
+      },
+      { signal: abort.signal },
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const parsed = safeJson(response.choices[0]?.message?.content ?? "{}");
+  const rawList = Array.isArray((parsed as Record<string, unknown>).questions)
+    ? ((parsed as Record<string, unknown>).questions as unknown[])
+    : [];
+
+  const questions: InterviewQuestion[] = rawList
+    .map((q): InterviewQuestion | null => {
+      if (!q || typeof q !== "object") return null;
+      const obj = q as Record<string, unknown>;
+      const question = typeof obj.question === "string" ? obj.question.trim() : "";
+      if (!question) return null;
+      const category = typeof obj.category === "string" ? obj.category : "role-specific";
+      const rationale = typeof obj.rationale === "string" ? obj.rationale : "";
+      return { id: crypto.randomUUID(), question, category, rationale };
+    })
+    .filter((q): q is InterviewQuestion => q !== null)
+    .slice(0, 5);
+
+  // Fallback if model returned nothing
+  if (questions.length === 0) {
+    questions.push(
+      {
+        id: crypto.randomUUID(),
+        question: `Walk me through why you're interested in ${lead.currentRole.toLowerCase()} roles, and specifically why ${lead.currentOrganization}.`,
+        category: "culture-fit",
+        rationale: "Tests motivation and whether the candidate did real research on the company.",
+      },
+      {
+        id: crypto.randomUUID(),
+        question: `Tell me about a time you had to learn something quickly to make progress on a project. What was the situation and what did you do?`,
+        category: "behavioral",
+        rationale: "Probes self-direction and learning agility — critical for early-career hires.",
+      },
+      {
+        id: crypto.randomUUID(),
+        question: `What's a skill or area you think someone in a ${lead.currentRole} role at ${lead.currentOrganization} needs to be strong in, and how have you started developing it?`,
+        category: "role-specific",
+        rationale: "Tests role awareness and self-assessment.",
+      },
+    );
+  }
+
+  return {
+    role: lead.currentRole,
+    organization: lead.currentOrganization,
+    questions,
+  };
+}
+
+async function gradeInterviewAnswer(input: {
+  student: { major: string; university: string };
+  lead: Lead;
+  question: string;
+  audioBuffer: Buffer;
+}): Promise<{
+  transcript: string;
+  score: number;
+  tone: string;
+  toneNotes: string | null;
+  strengths: string[];
+  improvements: string[];
+  summary: string;
+}> {
+  const { student, lead, question, audioBuffer } = input;
+
+  const { buffer, format } = await ensureCompatibleFormat(audioBuffer);
+  let transcript = "";
+  try {
+    transcript = (await speechToText(buffer, format)).trim();
+  } catch (err) {
+    logger.warn({ err }, "Transcription failed");
+    transcript = "";
+  }
+
+  if (!transcript) {
+    return {
+      transcript: "",
+      score: 0,
+      tone: "inaudible",
+      toneNotes: "We couldn't make out any speech in the recording. Try again in a quieter room and speak closer to the mic.",
+      strengths: [],
+      improvements: [
+        "Re-record in a quieter environment.",
+        "Speak directly into the microphone and check it isn't muted.",
+        "Aim for at least 30–60 seconds of clear speech.",
+      ],
+      summary: "No audible answer was detected, so this attempt couldn't be scored.",
+    };
+  }
+
+  const prompt = `You are a brutally honest interview coach grading a college student's spoken answer to a mock interview question.
+
+CONTEXT
+- Student: ${student.major} student at ${student.university}
+- Target role: ${lead.currentRole} at ${lead.currentOrganization}
+
+QUESTION ASKED:
+${question}
+
+STUDENT'S TRANSCRIBED ANSWER (verbatim, includes any filler words, false starts, and pauses captured by speech-to-text):
+"""
+${transcript}
+"""
+
+Grade this answer HARSHLY. Most undergrad answers should land 4-7. Reserve 8-10 for genuinely excellent answers with concrete specifics, structure, and clear signal. Anything vague, generic, or full of filler should score 5 or below.
+
+Also infer the speaker's VOCAL TONE / DELIVERY from the transcript: filler words ("um", "uh", "like", "you know"), false starts, run-on sentences, hedging language ("kind of", "sort of", "I guess"), or strong confident phrasing. Pick ONE primary tone label from this set: "confident", "hesitant", "rambling", "rushed", "monotone", "nervous", "polished", "underprepared". If genuinely mixed, pick the dominant one.
+
+Return ONLY a JSON object:
+{
+  "score": <number 0-10, one decimal allowed>,
+  "tone": "<one label from the set above>",
+  "toneNotes": "<1-2 sentences on delivery: filler words count, pacing, structure, hedging>",
+  "strengths": ["<concrete strength tied to the transcript>", ...],   // 0-3 items, can be empty
+  "improvements": ["<specific, actionable improvement>", ...],         // 2-4 items, REQUIRED
+  "summary": "<2-3 sentences of honest feedback. Direct. No sugar-coating.>"
+}
+
+HARD RULES:
+- Improvements must be specific to what they said, not generic advice.
+- If the answer is short or evasive, say so plainly.
+- Do NOT use emojis. Do NOT use the words "leverage", "synergy", "rockstar".`;
+
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), 45_000);
+  let response;
+  try {
+    response = await openai.chat.completions.create(
+      {
+        model: "gpt-5.4",
+        max_completion_tokens: 1500,
+        response_format: { type: "json_object" },
+        messages: [{ role: "user", content: prompt }],
+      },
+      { signal: abort.signal },
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const parsed = safeJson(response.choices[0]?.message?.content ?? "{}") as Record<string, unknown>;
+  const rawScore = typeof parsed.score === "number" ? parsed.score : Number(parsed.score);
+  const score = Number.isFinite(rawScore) ? Math.max(0, Math.min(10, rawScore)) : 5;
+  const tone = typeof parsed.tone === "string" && parsed.tone ? parsed.tone : "neutral";
+  const toneNotes = typeof parsed.toneNotes === "string" ? parsed.toneNotes : null;
+  const strengths = Array.isArray(parsed.strengths)
+    ? parsed.strengths.filter((s): s is string => typeof s === "string").slice(0, 4)
+    : [];
+  const improvements = Array.isArray(parsed.improvements)
+    ? parsed.improvements.filter((s): s is string => typeof s === "string").slice(0, 5)
+    : [];
+  const summary = typeof parsed.summary === "string" ? parsed.summary : "";
+
+  return {
+    transcript,
+    score: Math.round(score * 10) / 10,
+    tone,
+    toneNotes,
+    strengths,
+    improvements: improvements.length > 0 ? improvements : ["Give a more concrete example with a specific situation, action, and result."],
+    summary: summary || "Your answer was scored, but the model didn't return a written summary.",
+  };
 }
 
 function ratio(matched: number, total: number, weight: number): number {

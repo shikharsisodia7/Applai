@@ -113,6 +113,60 @@ paths:
               schema:
                 $ref: "#/components/schemas/OutreachDraft"
 
+  /analyses/{id}/leads/{leadId}/interview:
+    post:
+      operationId: createInterview
+      tags: [analysis]
+      summary: Generate a mock interview (3-5 tailored questions) for the role this lead holds
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: leadId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InterviewSession"
+
+  /analyses/{id}/leads/{leadId}/interview/grade:
+    post:
+      operationId: gradeInterviewAnswer
+      tags: [analysis]
+      summary: Transcribe a recorded answer, grade it harshly (0-10), detect vocal tone, return improvements
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: leadId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/InterviewGradeInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InterviewGrade"
+
   /majors:
     get:
       operationId: listMajors
@@ -275,6 +329,74 @@ components:
           type: array
           items:
             type: string
+
+    InterviewQuestion:
+      type: object
+      required: [id, question, category, rationale]
+      properties:
+        id:
+          type: string
+        question:
+          type: string
+        category:
+          type: string
+          description: e.g. "behavioral", "technical", "role-specific", "culture-fit"
+        rationale:
+          type: string
+          description: One-sentence note on why this question matters for this role
+
+    InterviewSession:
+      type: object
+      required: [role, organization, questions]
+      properties:
+        role:
+          type: string
+        organization:
+          type: string
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/InterviewQuestion"
+
+    InterviewGradeInput:
+      type: object
+      required: [audio, question]
+      properties:
+        audio:
+          type: string
+          format: binary
+          description: Recorded answer (webm / mp4 / wav / mp3)
+        question:
+          type: string
+          description: The interview question the user is answering
+        questionId:
+          type: string
+
+    InterviewGrade:
+      type: object
+      required: [transcript, score, tone, strengths, improvements, summary]
+      properties:
+        transcript:
+          type: string
+        score:
+          type: number
+          description: Harsh 0-10 score
+        tone:
+          type: string
+          description: Detected vocal tone (e.g. "confident", "hesitant", "monotone")
+        toneNotes:
+          type: ["string", "null"]
+          description: Optional fuller note on delivery / pacing / filler words
+        strengths:
+          type: array
+          items:
+            type: string
+        improvements:
+          type: array
+          items:
+            type: string
+        summary:
+          type: string
 
     OutreachDraft:
       type: object
