@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useParams, Link } from "wouter";
 import { useGetAnalysis, getGetAnalysisQueryKey } from "@workspace/api-client-react";
 import { LeadDetailModal } from "@/components/lead-detail-modal";
@@ -10,19 +10,64 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { 
   GraduationCap, 
   MapPin, 
-  Building2, 
   ArrowLeft,
   MessageSquare,
   Sparkles,
   TrendingUp,
-  Briefcase
+  Briefcase,
+  X,
+  Filter
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+type FilterCategory = "skills" | "internships" | "clubs";
+type SelectedFilter = { category: FilterCategory; value: string };
+
+function filterKey(f: SelectedFilter): string {
+  return `${f.category}::${f.value.toLowerCase()}`;
+}
+
+function leadMatchesFilters(
+  lead: { matchedSkills: string[]; matchedClubs: string[]; matchedInternships: string[] },
+  filters: SelectedFilter[],
+): boolean {
+  if (filters.length === 0) return true;
+  return filters.every((f) => {
+    const pool =
+      f.category === "skills"
+        ? lead.matchedSkills
+        : f.category === "clubs"
+          ? lead.matchedClubs
+          : lead.matchedInternships;
+    const target = f.value.toLowerCase();
+    return pool.some((v) => v.toLowerCase() === target);
+  });
+}
+
+function overlapCount(
+  lead: { matchedSkills: string[]; matchedClubs: string[]; matchedInternships: string[] },
+  filters: SelectedFilter[],
+): number {
+  if (filters.length === 0) return 0;
+  let n = 0;
+  for (const f of filters) {
+    const pool =
+      f.category === "skills"
+        ? lead.matchedSkills
+        : f.category === "clubs"
+          ? lead.matchedClubs
+          : lead.matchedInternships;
+    const target = f.value.toLowerCase();
+    if (pool.some((v) => v.toLowerCase() === target)) n++;
+  }
+  return n;
+}
 
 export default function Results() {
   const params = useParams();
   const analysisId = params.analysisId as string;
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [filters, setFilters] = useState<SelectedFilter[]>([]);
 
   const { data: analysis, isLoading, error } = useGetAnalysis(analysisId, {
     query: {
@@ -30,6 +75,31 @@ export default function Results() {
       queryKey: getGetAnalysisQueryKey(analysisId)
     }
   });
+
+  const isFilterActive = (f: SelectedFilter) =>
+    filters.some((x) => filterKey(x) === filterKey(f));
+
+  const toggleFilter = (f: SelectedFilter) => {
+    setFilters((prev) =>
+      prev.some((x) => filterKey(x) === filterKey(f))
+        ? prev.filter((x) => filterKey(x) !== filterKey(f))
+        : [...prev, f],
+    );
+  };
+
+  const clearFilters = () => setFilters([]);
+
+  const visibleLeads = useMemo(() => {
+    const all = analysis?.leads ?? [];
+    const filtered = all.filter((lead) => leadMatchesFilters(lead, filters));
+    return [...filtered].sort((a, b) => {
+      if (filters.length > 0) {
+        const diff = overlapCount(b, filters) - overlapCount(a, filters);
+        if (diff !== 0) return diff;
+      }
+      return b.similarityScore - a.similarityScore;
+    });
+  }, [analysis?.leads, filters]);
 
   if (isLoading) {
     return (
@@ -68,8 +138,8 @@ export default function Results() {
     );
   }
 
-  // Sort leads by similarity score descending
-  const sortedLeads = [...(analysis.leads || [])].sort((a, b) => b.similarityScore - a.similarityScore);
+  const sortedLeads = visibleLeads;
+  const totalLeads = analysis.leads?.length ?? 0;
 
   return (
     <div className="flex-1 bg-muted/20 pb-12">
@@ -90,34 +160,121 @@ export default function Results() {
                 </p>
               </div>
 
-              <div className="flex flex-wrap gap-2 pt-2">
-                {analysis.keywords.skills.map(skill => (
-                  <Badge key={skill} variant="secondary" className="bg-primary/10 text-primary font-medium">
-                    {skill}
-                  </Badge>
-                ))}
-                {analysis.keywords.internships.map(internship => (
-                  <Badge key={internship} variant="outline" className="border-primary/20 text-foreground font-medium">
-                    {internship}
-                  </Badge>
-                ))}
-                {analysis.keywords.clubs.map(club => (
-                  <Badge key={club} variant="outline" className="border-secondary/30 text-secondary font-medium">
-                    {club}
-                  </Badge>
-                ))}
+              <div className="space-y-2 pt-2">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <Filter className="w-3.5 h-3.5" />
+                  <span>Filter by tags you share</span>
+                  {filters.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearFilters}
+                      className="ml-1 h-6 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="w-3 h-3 mr-1" />
+                      Clear filters ({filters.length})
+                    </Button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {analysis.keywords.skills.map((skill) => {
+                    const f: SelectedFilter = { category: "skills", value: skill };
+                    const active = isFilterActive(f);
+                    return (
+                      <button
+                        key={`skill-${skill}`}
+                        type="button"
+                        onClick={() => toggleFilter(f)}
+                        aria-pressed={active}
+                        className="focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full"
+                      >
+                        <Badge
+                          variant="secondary"
+                          className={cn(
+                            "cursor-pointer font-medium transition-all",
+                            active
+                              ? "bg-primary text-primary-foreground hover:bg-primary/90 ring-2 ring-primary/30"
+                              : "bg-primary/10 text-primary hover:bg-primary/20",
+                          )}
+                        >
+                          {skill}
+                        </Badge>
+                      </button>
+                    );
+                  })}
+                  {analysis.keywords.internships.map((internship) => {
+                    const f: SelectedFilter = { category: "internships", value: internship };
+                    const active = isFilterActive(f);
+                    return (
+                      <button
+                        key={`int-${internship}`}
+                        type="button"
+                        onClick={() => toggleFilter(f)}
+                        aria-pressed={active}
+                        className="focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full"
+                      >
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "cursor-pointer font-medium transition-all",
+                            active
+                              ? "border-primary bg-primary/15 text-primary ring-2 ring-primary/20"
+                              : "border-primary/20 text-foreground hover:bg-muted",
+                          )}
+                        >
+                          {internship}
+                        </Badge>
+                      </button>
+                    );
+                  })}
+                  {analysis.keywords.clubs.map((club) => {
+                    const f: SelectedFilter = { category: "clubs", value: club };
+                    const active = isFilterActive(f);
+                    return (
+                      <button
+                        key={`club-${club}`}
+                        type="button"
+                        onClick={() => toggleFilter(f)}
+                        aria-pressed={active}
+                        className="focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full"
+                      >
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "cursor-pointer font-medium transition-all",
+                            active
+                              ? "border-secondary bg-secondary/20 text-secondary ring-2 ring-secondary/20"
+                              : "border-secondary/30 text-secondary hover:bg-secondary/10",
+                          )}
+                        >
+                          {club}
+                        </Badge>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
             
             <div className="flex items-center gap-4 bg-muted/50 p-4 rounded-xl border border-border shrink-0">
               <div className="text-center px-4">
-                <div className="text-3xl font-bold text-foreground">{sortedLeads.length}</div>
-                <div className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Matches</div>
+                <div className="text-3xl font-bold text-foreground">
+                  {sortedLeads.length}
+                  {filters.length > 0 && (
+                    <span className="text-base font-medium text-muted-foreground"> / {totalLeads}</span>
+                  )}
+                </div>
+                <div className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+                  {filters.length > 0 ? "Showing" : "Matches"}
+                </div>
               </div>
               <div className="w-px h-12 bg-border/50"></div>
               <div className="text-center px-4">
                 <div className="text-3xl font-bold text-primary">
-                  {Math.max(...(sortedLeads.map(l => l.similarityScore) || [0]))}%
+                  {sortedLeads.length > 0
+                    ? Math.max(...sortedLeads.map((l) => l.similarityScore))
+                    : 0}%
                 </div>
                 <div className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Top Score</div>
               </div>
@@ -137,13 +294,24 @@ export default function Results() {
         {sortedLeads.length === 0 ? (
           <div className="text-center py-24 bg-background rounded-2xl border border-dashed border-border">
             <Sparkles className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-20" />
-            <h3 className="text-xl font-semibold mb-2">No matches found</h3>
+            <h3 className="text-xl font-semibold mb-2">
+              {filters.length > 0 ? "No alumni match every selected tag" : "No matches found"}
+            </h3>
             <p className="text-muted-foreground max-w-md mx-auto">
-              We couldn't find any alumni matching your specific profile right now. Try uploading a more detailed resume.
+              {filters.length > 0
+                ? "Try removing a tag or two — leads must share every tag you've selected."
+                : "We couldn't find any alumni matching your specific profile right now. Try uploading a more detailed resume."}
             </p>
-            <Button asChild className="mt-6">
-              <Link href="/">Try Again</Link>
-            </Button>
+            {filters.length > 0 ? (
+              <Button onClick={clearFilters} className="mt-6">
+                <X className="w-4 h-4 mr-2" />
+                Clear filters
+              </Button>
+            ) : (
+              <Button asChild className="mt-6">
+                <Link href="/">Try Again</Link>
+              </Button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
