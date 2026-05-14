@@ -511,39 +511,77 @@ async function draftOutreachMessages(input: {
 }): Promise<{ emailSubject: string; emailBody: string; linkedinMessage: string }> {
   const { student, lead } = input;
 
-  const sharedSkills = lead.matchedSkills.slice(0, 5);
-  const sharedClubs = lead.matchedClubs.slice(0, 3);
-  const sharedInternships = lead.matchedInternships.slice(0, 3);
+  const sharedSkills = lead.matchedSkills.slice(0, 6);
+  const sharedClubs = lead.matchedClubs.slice(0, 4);
+  const sharedInternships = lead.matchedInternships.slice(0, 4);
 
-  const prompt = `You are writing two outreach messages a real college student will send to a ${student.university} alum.
+  const careerLines = (lead.careerHistory ?? [])
+    .slice(0, 8)
+    .map((c) => {
+      const years = `${c.startYear ?? "?"}–${c.endYear ?? "Present"}`;
+      const desc = c.description ? ` — ${c.description}` : "";
+      return `  • ${years}: ${c.role} at ${c.organization}${desc}`;
+    })
+    .join("\n") || "  (no public career history available)";
 
-STUDENT
+  const eduLines = (lead.educationHistory ?? [])
+    .slice(0, 4)
+    .map((e) => {
+      const years = `${e.startYear ?? "?"}–${e.endYear ?? "?"}`;
+      const degree = [e.degree, e.field].filter(Boolean).join(", ");
+      return `  • ${e.institution}${degree ? ` (${degree})` : ""} ${years}`;
+    })
+    .join("\n") || "  (no public education history available)";
+
+  const prompt = `You are writing TWO outreach messages a real college student will send to ONE specific ${student.university} alum named ${lead.name}.
+
+These drafts MUST read as written for ${lead.name} alone — never like a template. Reuse none of the wording you'd use for a different alum. Anchor everything in the concrete, person-specific facts below.
+
+=== STUDENT (sender) ===
 - University: ${student.university}
 - Major: ${student.major}
 - Skills they listed: ${student.keywords.skills.slice(0, 10).join(", ") || "(n/a)"}
 - Clubs / activities: ${student.keywords.clubs.slice(0, 5).join(", ") || "(n/a)"}
 - Past internships / roles: ${student.keywords.internships.slice(0, 5).join(", ") || "(n/a)"}
 
-ALUM
+=== ALUM (recipient) — write FOR THIS PERSON ===
 - Name: ${lead.name}
-- Current role: ${lead.currentRole} at ${lead.currentOrganization}
-- Graduated: ${student.university}, Class of ${lead.graduationYear}${lead.major ? `, studied ${lead.major}` : ""}
-- Shared skills: ${sharedSkills.join(", ") || "(none)"}
-- Shared clubs / orgs: ${sharedClubs.join(", ") || "(none)"}
-- Shared early-career experience: ${sharedInternships.join(", ") || "(none)"}
-${lead.growthSummary ? `- Notable: ${lead.growthSummary}` : ""}
+- Currently: ${lead.currentRole} at ${lead.currentOrganization}
+${lead.location ? `- Based in: ${lead.location}` : ""}
+- Same university as student: ${student.university} (Class of ${lead.graduationYear}${lead.major ? `, studied ${lead.major}` : ""})
+- What you and they have in common:
+   • Shared skills: ${sharedSkills.join(", ") || "(none)"}
+   • Shared clubs / orgs: ${sharedClubs.join(", ") || "(none)"}
+   • Shared early-career experience: ${sharedInternships.join(", ") || "(none)"}
+${lead.growthSummary ? `- One-line summary of their journey: ${lead.growthSummary}` : ""}
+- Career history (use a SPECIFIC entry from here as the unique anchor — name a role, company, or transition that is unique to this person):
+${careerLines}
+- Education history:
+${eduLines}
 
-Write:
-1. A warm, specific COLD EMAIL (the kind a thoughtful undergrad sends, not a marketing pitch).
-   - Subject: short, personal, no clickbait, no emoji.
-   - Body: ~120-160 words. Open by naming the genuine connection (same school + a SPECIFIC overlap from above). One short paragraph about what the student admires about the alum's path (reference an actual fact). One ask: 15-20 minutes on a call to hear advice on breaking into their field. Close politely. Sign off as "[Your Name]" so the student can fill it in.
-   - Plain text, no markdown, no headers, no bullet points.
+=== WHAT TO WRITE ===
 
-2. A LINKEDIN CONNECTION-REQUEST MESSAGE.
-   - HARD LIMIT: under 290 characters (LinkedIn caps at 300). Be ruthless.
-   - Mention the shared school plus ONE genuine overlap from above. Make a short, specific ask (advice / 15-min call). End with "— [Your Name]".
+1. A warm, specific COLD EMAIL — written like a thoughtful undergrad who actually researched ${lead.name.split(" ")[0]}.
+   - Subject: short, personal, references something concrete about ${lead.name.split(" ")[0]}'s path (e.g., a company, a role transition, or shared activity). No clickbait, no emoji, no all-caps.
+   - Body: ~120–170 words. Plain text. No markdown, no bullet points, no headers.
+     • Open by naming the genuine connection: same university PLUS one SPECIFIC overlap (a club, an early role, a skill).
+     • Middle: one short paragraph about ONE concrete moment in ${lead.name.split(" ")[0]}'s career that the student admires. You MUST name a real role, company, or transition pulled from the career history above. If the career history is empty, name the current role and organization specifically — never invent details.
+     • Ask: 15–20 minutes on a call for advice on breaking into ${lead.currentRole.toLowerCase().includes("at") ? lead.currentRole : lead.currentRole + " / " + lead.currentOrganization} or the broader space.
+     • Close warmly. Sign off as "[Your Name]" (literal placeholder, including the brackets).
 
-Tone: humble, warm, curious, never sycophantic, never generic. Reference real facts from above only. Do NOT invent details about the alum. Do NOT use the words "synergy", "leverage", "rockstar", "hustle", or "circle back". Do NOT use emojis.
+2. A LINKEDIN CONNECTION-REQUEST MESSAGE — also FOR ${lead.name} specifically.
+   - HARD LIMIT: under 290 characters total. Count carefully.
+   - Greet by first name: "Hi ${lead.name.split(" ")[0]}".
+   - Reference the shared university PLUS one concrete overlap or one specific fact about their path (e.g., their role at ${lead.currentOrganization}).
+   - Short ask: 15-min call for advice.
+   - End with "— [Your Name]".
+
+=== HARD RULES ===
+- Reference ONLY facts that appear in the data above. Do NOT invent companies, dates, or details about ${lead.name}.
+- The email MUST name at least one real role/company/club from the lists above that is unique to ${lead.name}, not a generic compliment.
+- Tone: humble, warm, curious, concrete. Never sycophantic. Never generic. Never read like a template.
+- Banned words: "synergy", "leverage", "rockstar", "hustle", "circle back", "I hope this email finds you well", "reach out", "pick your brain".
+- No emojis anywhere.
 
 Return ONLY a JSON object exactly like:
 { "emailSubject": "...", "emailBody": "...", "linkedinMessage": "..." }`;
